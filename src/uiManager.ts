@@ -18,6 +18,7 @@ interface ChangedByFocusMode {
   breadcrumbs: boolean;
   menuBar: boolean;
   lineNumbers: boolean;
+  zoom: boolean;
 }
 
 /**
@@ -31,6 +32,7 @@ interface SettingsSnapshot {
   breadcrumbsEnabled: boolean | undefined;
   menuBarVisibility: string | undefined;
   lineNumbers: string | undefined;
+  zoomLevel: number | undefined;
 }
 
 /**
@@ -51,9 +53,16 @@ export class UIManager {
     breadcrumbsEnabled: undefined,
     menuBarVisibility: undefined,
     lineNumbers: undefined,
+    zoomLevel: undefined,
   };
   /** Tracks how many hide steps succeeded so rollback can undo them. */
   private hideStepsCompleted = 0;
+  /** globalState memento for persisting focus-mode zoom level across sessions. */
+  private globalState: vscode.Memento;
+
+  constructor(globalState: vscode.Memento) {
+    this.globalState = globalState;
+  }
 
   /**
    * Hide all non-editor UI chrome based on config.
@@ -119,6 +128,20 @@ export class UIManager {
         if (this.settingsSnapshot.menuBarVisibility !== 'hidden') {
           await winCfg.update('menuBarVisibility', 'hidden', vscode.ConfigurationTarget.Global);
           this.changed.menuBar = true;
+        }
+      }
+      this.hideStepsCompleted++;
+
+      // Zoom level — maintain separate zoom for focus mode vs normal mode
+      {
+        const winCfg = vscode.workspace.getConfiguration('window');
+        const currentZoom = winCfg.get<number>('zoomLevel') ?? 0;
+        this.settingsSnapshot.zoomLevel = currentZoom; // snapshot normal-mode zoom
+
+        const savedFocusZoom = this.globalState.get<number>('focusMode.focusZoomLevel');
+        if (savedFocusZoom !== undefined && savedFocusZoom !== currentZoom) {
+          await winCfg.update('zoomLevel', savedFocusZoom, vscode.ConfigurationTarget.Global);
+          this.changed.zoom = true;
         }
       }
       this.hideStepsCompleted++;
@@ -194,6 +217,21 @@ export class UIManager {
     if (this.changed.menuBar && this.settingsSnapshot.menuBarVisibility !== undefined) {
       const winCfg = vscode.workspace.getConfiguration('window');
       await winCfg.update('menuBarVisibility', this.settingsSnapshot.menuBarVisibility, vscode.ConfigurationTarget.Global);
+    }
+
+    // Zoom level — save current (focus-mode) zoom, restore normal-mode zoom
+    {
+      const winCfg = vscode.workspace.getConfiguration('window');
+      const currentZoom = winCfg.get<number>('zoomLevel') ?? 0;
+      // Always persist the focus-mode zoom so it's remembered next time
+      await this.globalState.update('focusMode.focusZoomLevel', currentZoom);
+
+      // Always restore normal-mode zoom from snapshot — user may have
+      // changed zoom during focus mode even if we didn't set it on enter
+      if (this.settingsSnapshot.zoomLevel !== undefined
+          && currentZoom !== this.settingsSnapshot.zoomLevel) {
+        await winCfg.update('zoomLevel', this.settingsSnapshot.zoomLevel, vscode.ConfigurationTarget.Global);
+      }
     }
 
     // ── Best-effort tier: reverse toggle commands ────────────────
@@ -291,6 +329,7 @@ export class UIManager {
       breadcrumbs: false,
       menuBar: false,
       lineNumbers: false,
+      zoom: false,
     };
   }
 }

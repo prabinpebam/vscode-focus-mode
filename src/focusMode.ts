@@ -22,7 +22,7 @@ export class FocusMode {
   constructor(private context: vscode.ExtensionContext) {
     const config = getConfig();
     this.decorationManager = new DecorationManager(config.opacity);
-    this.uiManager = new UIManager();
+    this.uiManager = new UIManager(context.globalState);
   }
 
   /** Toggle focus mode on or off. Guarded against re-entrant calls. */
