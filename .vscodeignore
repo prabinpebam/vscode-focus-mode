@@ -7,3 +7,6 @@ esbuild.mjs
 tsconfig.json
 *.map
 .gitignore
+images/*.svg
+out/test/**
+out/**/*.map

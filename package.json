@@ -3,7 +3,28 @@
   "displayName": "Focus Mode",
   "description": "Distraction-free writing mode with line spotlight effect",
   "version": "1.0.0",
-  "publisher": "focus-mode",
+  "publisher": "prabinpebam",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/prabinpebam/vscode-focus-mode"
+  },
+  "homepage": "https://github.com/prabinpebam/vscode-focus-mode#readme",
+  "bugs": {
+    "url": "https://github.com/prabinpebam/vscode-focus-mode/issues"
+  },
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "keywords": [
+    "focus",
+    "distraction-free",
+    "zen",
+    "spotlight",
+    "writing"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
