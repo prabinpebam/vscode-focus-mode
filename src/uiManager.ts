@@ -17,6 +17,7 @@ interface ChangedByFocusMode {
   editorActions: boolean;
   breadcrumbs: boolean;
   menuBar: boolean;
+  layoutControl: boolean;
   lineNumbers: boolean;
   zoom: boolean;
 }
@@ -31,6 +32,7 @@ interface SettingsSnapshot {
   editorActionsLocation: string | undefined;
   breadcrumbsEnabled: boolean | undefined;
   menuBarVisibility: string | undefined;
+  layoutControlEnabled: boolean | undefined;
   lineNumbers: string | undefined;
   zoomLevel: number | undefined;
 }
@@ -52,6 +54,7 @@ export class UIManager {
     editorActionsLocation: undefined,
     breadcrumbsEnabled: undefined,
     menuBarVisibility: undefined,
+    layoutControlEnabled: undefined,
     lineNumbers: undefined,
     zoomLevel: undefined,
   };
@@ -128,6 +131,17 @@ export class UIManager {
         if (this.settingsSnapshot.menuBarVisibility !== 'hidden') {
           await winCfg.update('menuBarVisibility', 'hidden', vscode.ConfigurationTarget.Global);
           this.changed.menuBar = true;
+        }
+      }
+      this.hideStepsCompleted++;
+
+      // Layout controls (split/grid/layout icons in the title bar area)
+      {
+        const wbCfg = vscode.workspace.getConfiguration('workbench.layoutControl');
+        this.settingsSnapshot.layoutControlEnabled = wbCfg.get<boolean>('enabled');
+        if (this.settingsSnapshot.layoutControlEnabled !== false) {
+          await wbCfg.update('enabled', false, vscode.ConfigurationTarget.Global);
+          this.changed.layoutControl = true;
         }
       }
       this.hideStepsCompleted++;
@@ -217,6 +231,11 @@ export class UIManager {
     if (this.changed.menuBar && this.settingsSnapshot.menuBarVisibility !== undefined) {
       const winCfg = vscode.workspace.getConfiguration('window');
       await winCfg.update('menuBarVisibility', this.settingsSnapshot.menuBarVisibility, vscode.ConfigurationTarget.Global);
+    }
+
+    if (this.changed.layoutControl && this.settingsSnapshot.layoutControlEnabled !== undefined) {
+      const wbCfg = vscode.workspace.getConfiguration('workbench.layoutControl');
+      await wbCfg.update('enabled', this.settingsSnapshot.layoutControlEnabled, vscode.ConfigurationTarget.Global);
     }
 
     // Zoom level — save current (focus-mode) zoom, restore normal-mode zoom
@@ -328,6 +347,7 @@ export class UIManager {
       editorActions: false,
       breadcrumbs: false,
       menuBar: false,
+      layoutControl: false,
       lineNumbers: false,
       zoom: false,
     };
