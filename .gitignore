@@ -23,6 +23,9 @@ Desktop.ini
 .env
 .env.local
 
+# VS Code test isolation
+.vscode-test/
+
 # Debug
 *.log
 npm-debug.log*

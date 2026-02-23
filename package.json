@@ -1,0 +1,118 @@
+{
+  "name": "vscode-focus-mode",
+  "displayName": "Focus Mode",
+  "description": "Distraction-free writing mode with line spotlight effect",
+  "version": "1.0.0",
+  "publisher": "focus-mode",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "lint": "tsc --noEmit",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "focusMode.toggle",
+        "title": "Toggle Focus Mode",
+        "category": "Focus Mode",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "focusMode.exit",
+        "title": "Exit Focus Mode",
+        "category": "Focus Mode"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "focusMode.toggle",
+        "key": "ctrl+k ctrl+f",
+        "mac": "cmd+k cmd+f"
+      },
+      {
+        "command": "focusMode.exit",
+        "key": "escape",
+        "when": "focusMode.active && editorTextFocus && !suggestWidgetVisible && !findWidgetVisible && !renameInputVisible && !inSnippetMode && !parameterHintsVisible && !codeActionMenuVisible"
+      }
+    ],
+    "configuration": {
+      "title": "Focus Mode",
+      "properties": {
+        "focusMode.opacity": {
+          "type": "number",
+          "default": 0.5,
+          "minimum": 0.1,
+          "maximum": 0.9,
+          "description": "Opacity level for non-focused lines (0.1 = nearly invisible, 0.9 = barely dimmed)"
+        },
+        "focusMode.lineNumbers": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "relative",
+            "inherit"
+          ],
+          "default": "off",
+          "description": "Line number visibility in focus mode"
+        },
+        "focusMode.fullScreen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enter full-screen mode when activating focus mode"
+        },
+        "focusMode.centerLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Center the editor layout in focus mode"
+        },
+        "focusMode.hideMinimap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Hide the minimap in focus mode"
+        },
+        "focusMode.singleEditorOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Collapse to a single editor group when entering focus mode"
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "focusMode.exit",
+          "when": "focusMode.active"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "focusMode.toggle",
+          "group": "navigation",
+          "when": "!focusMode.active"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/test-electron": "^2.3.8",
+    "mocha": "^10.2.0",
+    "esbuild": "^0.19.0",
+    "@vscode/vsce": "^2.22.0",
+    "glob": "^10.0.0"
+  }
+}
