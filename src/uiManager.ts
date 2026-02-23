@@ -35,6 +35,7 @@ interface SettingsSnapshot {
   layoutControlEnabled: boolean | undefined;
   lineNumbers: string | undefined;
   zoomLevel: number | undefined;
+  zoomPerWindow: boolean | undefined;
 }
 
 /**
@@ -57,6 +58,7 @@ export class UIManager {
     layoutControlEnabled: undefined,
     lineNumbers: undefined,
     zoomLevel: undefined,
+    zoomPerWindow: undefined,
   };
   /** Tracks how many hide steps succeeded so rollback can undo them. */
   private hideStepsCompleted = 0;
@@ -154,23 +156,32 @@ export class UIManager {
       // *overrides* the setting for that window.
       //
       // Strategy:
-      //   1. Snapshot `window.zoomLevel` as the normal-mode base zoom.
+      //   1. Snapshot `window.zoomLevel` and `window.zoomPerWindow`.
       //   2. Write the saved focus zoom into `window.zoomLevel`.
-      //   3. Execute `workbench.action.zoomReset` to clear any per-window
-      //      override so the window actually adopts the new setting value.
+      //   3. Disable `window.zoomPerWindow` so that any Ctrl+=/- the user
+      //      does during focus mode writes directly to the setting —
+      //      this lets us read the true zoom level back on exit.
+      //   4. Execute `zoomReset` to clear any stale per-window override
+      //      so the window actually adopts the new setting value.
       {
         const winCfg = vscode.workspace.getConfiguration('window');
         const currentZoom = winCfg.get<number>('zoomLevel') ?? 0;
         this.settingsSnapshot.zoomLevel = currentZoom; // snapshot normal-mode zoom
+        this.settingsSnapshot.zoomPerWindow = winCfg.get<boolean>('zoomPerWindow');
 
         const savedFocusZoom = this.globalState.get<number>('focusMode.focusZoomLevel');
         if (savedFocusZoom !== undefined && savedFocusZoom !== currentZoom) {
           await winCfg.update('zoomLevel', savedFocusZoom, vscode.ConfigurationTarget.Global);
           this.changed.zoom = true;
         }
-        // Always reset per-window zoom so the window adopts the setting value.
-        // Without this, a per-window override from a previous Ctrl+/- could
-        // mask our setting change entirely (window.zoomPerWindow behaviour).
+
+        // Disable zoomPerWindow so Ctrl+=/- directly updates window.zoomLevel.
+        // This ensures we can read the real zoom when exiting focus mode.
+        if (this.settingsSnapshot.zoomPerWindow !== false) {
+          await winCfg.update('zoomPerWindow', false, vscode.ConfigurationTarget.Global);
+        }
+
+        // Clear any stale per-window override so the window adopts the setting.
         await vscode.commands.executeCommand('workbench.action.zoomReset');
       }
       this.hideStepsCompleted++;
@@ -255,28 +266,27 @@ export class UIManager {
 
     // Zoom level — save current (focus-mode) zoom, restore normal-mode zoom.
     //
-    // See the hideChrome comment for the window.zoomPerWindow complication.
-    // On exit we:
-    //   1. Read window.zoomLevel (the setting-level value; per-window
-    //      adjustments via Ctrl+/- during focus mode are not captured here
-    //      because zoomPerWindow keeps them out of the setting).
-    //   2. Persist it as the focus-mode zoom for next session.
-    //   3. Restore the normal-mode zoom from our snapshot.
-    //   4. Execute zoomReset so the per-window override is cleared and the
-    //      window actually shows the restored zoom.
+    // Because we disabled zoomPerWindow on enter, Ctrl+=/- during focus mode
+    // wrote directly to window.zoomLevel.  We can now read the true zoom.
     {
       const winCfg = vscode.workspace.getConfiguration('window');
       const currentZoom = winCfg.get<number>('zoomLevel') ?? 0;
       // Always persist the focus-mode zoom so it's remembered next time
       await this.globalState.update('focusMode.focusZoomLevel', currentZoom);
 
-      // Always restore normal-mode zoom from snapshot — user may have
-      // changed zoom during focus mode even if we didn't set it on enter
+      // Restore normal-mode zoom from snapshot
       if (this.settingsSnapshot.zoomLevel !== undefined
           && currentZoom !== this.settingsSnapshot.zoomLevel) {
         await winCfg.update('zoomLevel', this.settingsSnapshot.zoomLevel, vscode.ConfigurationTarget.Global);
       }
-      // Clear per-window zoom override so restored setting takes effect
+
+      // Restore zoomPerWindow to user's original value (typically true)
+      if (this.settingsSnapshot.zoomPerWindow !== undefined
+          && this.settingsSnapshot.zoomPerWindow !== false) {
+        await winCfg.update('zoomPerWindow', this.settingsSnapshot.zoomPerWindow, vscode.ConfigurationTarget.Global);
+      }
+
+      // Clear any per-window override so restored setting takes effect
       await vscode.commands.executeCommand('workbench.action.zoomReset');
     }
 
