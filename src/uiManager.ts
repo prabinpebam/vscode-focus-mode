@@ -15,6 +15,7 @@ interface ChangedByFocusMode {
   minimap: boolean;
   tabs: boolean;
   breadcrumbs: boolean;
+  menuBar: boolean;
   lineNumbers: boolean;
 }
 
@@ -26,6 +27,7 @@ interface SettingsSnapshot {
   minimapEnabled: boolean | undefined;
   showTabs: string | undefined;
   breadcrumbsEnabled: boolean | undefined;
+  menuBarVisibility: string | undefined;
   lineNumbers: string | undefined;
 }
 
@@ -44,6 +46,7 @@ export class UIManager {
     minimapEnabled: undefined,
     showTabs: undefined,
     breadcrumbsEnabled: undefined,
+    menuBarVisibility: undefined,
     lineNumbers: undefined,
   };
   /** Tracks how many hide steps succeeded so rollback can undo them. */
@@ -91,6 +94,17 @@ export class UIManager {
         if (this.settingsSnapshot.breadcrumbsEnabled !== false) {
           await bcCfg.update('enabled', false, vscode.ConfigurationTarget.Global);
           this.changed.breadcrumbs = true;
+        }
+      }
+      this.hideStepsCompleted++;
+
+      // Menu bar (title bar with File/Edit/View etc.)
+      {
+        const winCfg = vscode.workspace.getConfiguration('window');
+        this.settingsSnapshot.menuBarVisibility = winCfg.get<string>('menuBarVisibility');
+        if (this.settingsSnapshot.menuBarVisibility !== 'hidden') {
+          await winCfg.update('menuBarVisibility', 'hidden', vscode.ConfigurationTarget.Global);
+          this.changed.menuBar = true;
         }
       }
       this.hideStepsCompleted++;
@@ -156,6 +170,11 @@ export class UIManager {
     if (this.changed.breadcrumbs && this.settingsSnapshot.breadcrumbsEnabled !== undefined) {
       const bcCfg = vscode.workspace.getConfiguration('breadcrumbs');
       await bcCfg.update('enabled', this.settingsSnapshot.breadcrumbsEnabled, vscode.ConfigurationTarget.Global);
+    }
+
+    if (this.changed.menuBar && this.settingsSnapshot.menuBarVisibility !== undefined) {
+      const winCfg = vscode.workspace.getConfiguration('window');
+      await winCfg.update('menuBarVisibility', this.settingsSnapshot.menuBarVisibility, vscode.ConfigurationTarget.Global);
     }
 
     // ── Best-effort tier: reverse toggle commands ────────────────
@@ -250,6 +269,7 @@ export class UIManager {
       minimap: false,
       tabs: false,
       breadcrumbs: false,
+      menuBar: false,
       lineNumbers: false,
     };
   }

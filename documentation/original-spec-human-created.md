@@ -6,3 +6,4 @@
 - Scroll works
 - Line number is optional
 - Only the current line where the cursor is, is shown with full brightness in the current color theme. The rest of the text is shown with 50% opcaity
+- Esc should exit the mode
