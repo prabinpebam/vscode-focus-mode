@@ -14,6 +14,7 @@ interface ChangedByFocusMode {
   centeredLayout: boolean;
   minimap: boolean;
   tabs: boolean;
+  editorActions: boolean;
   breadcrumbs: boolean;
   menuBar: boolean;
   lineNumbers: boolean;
@@ -26,6 +27,7 @@ interface ChangedByFocusMode {
 interface SettingsSnapshot {
   minimapEnabled: boolean | undefined;
   showTabs: string | undefined;
+  editorActionsLocation: string | undefined;
   breadcrumbsEnabled: boolean | undefined;
   menuBarVisibility: string | undefined;
   lineNumbers: string | undefined;
@@ -45,6 +47,7 @@ export class UIManager {
   private settingsSnapshot: SettingsSnapshot = {
     minimapEnabled: undefined,
     showTabs: undefined,
+    editorActionsLocation: undefined,
     breadcrumbsEnabled: undefined,
     menuBarVisibility: undefined,
     lineNumbers: undefined,
@@ -83,6 +86,17 @@ export class UIManager {
         if (this.settingsSnapshot.showTabs !== 'none') {
           await wbCfg.update('showTabs', 'none', vscode.ConfigurationTarget.Global);
           this.changed.tabs = true;
+        }
+      }
+      this.hideStepsCompleted++;
+
+      // Editor actions bar (split/close/... icons at top of editor group)
+      {
+        const wbCfg = vscode.workspace.getConfiguration('workbench.editor');
+        this.settingsSnapshot.editorActionsLocation = wbCfg.get<string>('editorActionsLocation');
+        if (this.settingsSnapshot.editorActionsLocation !== 'hidden') {
+          await wbCfg.update('editorActionsLocation', 'hidden', vscode.ConfigurationTarget.Global);
+          this.changed.editorActions = true;
         }
       }
       this.hideStepsCompleted++;
@@ -165,6 +179,11 @@ export class UIManager {
     if (this.changed.tabs && this.settingsSnapshot.showTabs !== undefined) {
       const wbCfg = vscode.workspace.getConfiguration('workbench.editor');
       await wbCfg.update('showTabs', this.settingsSnapshot.showTabs, vscode.ConfigurationTarget.Global);
+    }
+
+    if (this.changed.editorActions && this.settingsSnapshot.editorActionsLocation !== undefined) {
+      const wbCfg = vscode.workspace.getConfiguration('workbench.editor');
+      await wbCfg.update('editorActionsLocation', this.settingsSnapshot.editorActionsLocation, vscode.ConfigurationTarget.Global);
     }
 
     if (this.changed.breadcrumbs && this.settingsSnapshot.breadcrumbsEnabled !== undefined) {
@@ -268,6 +287,7 @@ export class UIManager {
       centeredLayout: false,
       minimap: false,
       tabs: false,
+      editorActions: false,
       breadcrumbs: false,
       menuBar: false,
       lineNumbers: false,
