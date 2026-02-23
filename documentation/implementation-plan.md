@@ -8,6 +8,7 @@
 
 ## Table of Contents
 
+0. [Critique Summary & Improvements](#0-critique-summary--improvements)
 1. [Development Environment & Tooling](#1-development-environment--tooling)
 2. [Project Scaffold (Phase 0)](#2-project-scaffold-phase-0)
 3. [Implementation Phases](#3-implementation-phases)
@@ -15,6 +16,34 @@
 5. [Testing Strategy — Without Affecting Your VS Code](#5-testing-strategy--without-affecting-your-vs-code)
 6. [Debugging Workflow](#6-debugging-workflow)
 7. [Definition of Done Checklist](#7-definition-of-done-checklist)
+
+---
+
+## 0. Critique Summary & Improvements
+
+This section captures weaknesses in the previous draft and the concrete fixes adopted in this plan.
+
+### What was weak
+
+1. **UI restoration confidence was overstated** for toggle-only workbench UI (activity/status bar).
+2. **Isolation claims were too broad** without explicit `--user-data-dir` and `--extensions-dir` for all dev/test launch paths.
+3. **One sample test snippet had invalid TypeScript syntax** (`computeDimmedRanges(cursorLines: [5], totalLines: 10)`).
+4. **Crash-recovery sequencing was under-specified** for settings changed during focus mode.
+5. **Testing stages were present but exit criteria were not clearly gated per phase.**
+
+### Improvements applied
+
+- Split UI handling into **deterministic state** (settings-backed items) vs **best-effort toggles** (command-only items).
+- Added explicit **isolation-by-default launch/test arguments** and dedicated `.vscode-test/` storage paths.
+- Corrected invalid TypeScript snippet and tightened examples to compilable forms.
+- Added explicit **transaction/rollback pattern** for `enter()` so partial failures restore cleanly.
+- Added **phase exit criteria** so implementation can stop-and-verify before moving forward.
+
+### Non-negotiable implementation rules
+
+- Never write persistent user/workspace settings without snapshot + restore + crash marker.
+- Enter/exit transitions must be idempotent and guarded by `isTransitioning`.
+- Testing and debugging must run in isolated user data and extension dirs, not your normal profile.
 
 ---
 
@@ -102,8 +131,13 @@ vscode-focus-mode/
    - **Run Extension** — launches Extension Development Host
    - **Extension Tests** — launches test runner in isolated VS Code
 5. Create `.vscode/tasks.json` with `watch` and `compile` tasks
-6. Create `.gitignore` and `.vscodeignore`
-7. `npm install`
+6. Create dedicated isolation folders: `.vscode-test/user-data/` and `.vscode-test/extensions/`
+7. Ensure launch/test args include:
+  - `--user-data-dir=${workspaceFolder}/.vscode-test/user-data`
+  - `--extensions-dir=${workspaceFolder}/.vscode-test/extensions`
+  - `--disable-extensions` for automated tests
+8. Create `.gitignore` and `.vscodeignore`
+9. `npm install`
 
 ---
 
@@ -152,14 +186,20 @@ The main challenge is **detecting current state before hiding**. Strategy per el
 | Minimap | Can be read from `editor.minimap.enabled` setting | `editor.minimap.enabled → false` | Restore original setting value |
 | Tabs | Read `workbench.editor.showTabs` setting | Set to `"none"` | Restore original value |
 | Breadcrumbs | Read `breadcrumbs.enabled` setting | Set to `false` | Restore original value |
-| Full Screen | Check via `vscode.window.state.isFullScreen` (available since 1.x) — **Note:** this property does NOT exist in the public API. Alternative: record whether WE caused fullscreen. | `workbench.action.toggleFullScreen` | Same command (toggle back only if we toggled it) |
+| Full Screen | No stable direct query in extension API; track only whether this session toggled fullscreen | `workbench.action.toggleFullScreen` | Same command (toggle back only if we toggled it) |
 
-**Critical rule:** For toggle-based commands (activity bar, status bar, fullscreen), we cannot query pre-state via public API. Strategy:
-- **Minimap, Tabs, Breadcrumbs:** Readable via settings → read before, write, restore. ✅ Deterministic.
-- **Sidebar, Panel:** Use close commands (not toggle). Closing an already-closed sidebar is a no-op. On restore, toggle open only if `changedByFocusMode` is true. ⚠️ Assumes sidebar was open if the close command has any effect.  
-  Better approach: use `vscode.commands.executeCommand('workbench.action.closeSidebar')` which is idempotent (closing already-closed = no-op). But we need to know if it WAS open for restore. Best effort: assume it was open before close (record `true`), accept the edge case where user had it closed → we'll open it on exit. This is acceptable for v1.0.
-- **Activity Bar, Status Bar:** Pure toggles with no query. Record that we toggled; toggle back on exit. If user toggles mid-session, we may desync. Accept for v1.0 with a note.
-- **Full Screen:** Record if WE entered it. Only exit if we entered it.
+**Critical rule:** split restoration logic into two reliability tiers.
+
+1. **Deterministic tier (must always restore exactly):**
+  - Minimap, Tabs, Breadcrumbs, Line Numbers (settings-backed)
+  - Implementation: snapshot exact values on enter, write temporary value, restore from snapshot on exit.
+
+2. **Best-effort tier (command toggles with no public state API):**
+  - Activity Bar, Status Bar, Fullscreen, Sidebar, Panel
+  - Implementation: only reverse actions actually performed by this session (`changedByFocusMode`).
+  - Document known caveat: if user manually changes these during active focus mode, final layout may differ.
+
+**Failure rollback requirement:** if any hide step fails during `enter()`, run immediate rollback (`restoreChromePartial`) for already-applied changes and abort activation.
 
 ### Phase 3: FocusMode Orchestrator (State Machine)
 
@@ -175,6 +215,7 @@ The main challenge is **detecting current state before hiding**. Strategy per el
 | 3.6 | `src/focusMode.ts` | Editor change listener — `onDidChangeActiveTextEditor` → reapply decorations + line-number policy | Manual test: open new file while in focus mode |
 | 3.7 | `src/focusMode.ts` | Guard: if last editor closes, auto-exit focus mode | Manual test |
 | 3.8 | - | Integration tests for enter/exit/toggle | Run in isolated host |
+| 3.9 | `src/focusMode.ts` | Add `isTransitioning` guard + `try/finally` transition lock | Rapid double toggle does not corrupt state |
 
 **Debounce detail for 3.5:**  
 Use a simple `setTimeout`-based debounce at ~16ms. The `onDidChangeTextEditorSelection` event fires very frequently during selection drags. The debounce ensures we recompute at most ~60 times/sec. Implementation:
@@ -209,6 +250,14 @@ private onSelectionChange(e: vscode.TextEditorSelectionChangeEvent): void {
 | 5.4 | Crash recovery: write `focusMode.wasActive` to `globalState` on enter, clear on exit; on activate, check and run cleanup | Kill Dev Host while active → reopen → settings restored |
 | 5.5 | Multi-cursor support — ensure all cursor lines are bright | Select multi-cursor → all lines bright |
 | 5.6 | Code cleanup, JSDoc comments, README | Code review |
+
+### Phase Exit Criteria (Hard Gate)
+
+- **Exit Phase 1 only when:** all range/unit tests pass and large-file range computation remains O(k) where k = number of cursor gaps.
+- **Exit Phase 2 only when:** enter/exit is idempotent for deterministic tier and rollback works on simulated failure.
+- **Exit Phase 3 only when:** rapid toggles and editor-switch scenarios pass without leaked listeners or stale context.
+- **Exit Phase 4 only when:** commands are discoverable and keybindings resolve correctly in Keyboard Shortcuts UI.
+- **Exit Phase 5 only when:** full manual matrix passes in isolated profile.
 
 ### Phase 6: Packaging & Distribution
 
@@ -257,13 +306,23 @@ VS Code extensions are developed using the **Extension Development Host** patter
 └─────────────────────────────────┘    └─────────────────────────────────┘
 ```
 
-**How it works:**
+**How it works (with strict isolation settings):**
 1. You press **F5** in your dev VS Code (the editor where you write code)
 2. VS Code spawns a **completely separate VS Code window** called the Extension Development Host
 3. Your extension is loaded **only** in that second window
 4. The second window has its own settings, its own UI state, its own editor area
 5. Nothing you do in the Extension Development Host touches your real VS Code
 6. When you close the Extension Development Host, everything it changed dies with it
+
+Use explicit launch args to enforce this:
+
+```jsonc
+"args": [
+  "--extensionDevelopmentPath=${workspaceFolder}",
+  "--user-data-dir=${workspaceFolder}/.vscode-test/user-data",
+  "--extensions-dir=${workspaceFolder}/.vscode-test/extensions"
+]
+```
 
 ### 5.1 Test Levels
 
@@ -282,7 +341,7 @@ VS Code extensions are developed using the **Extension Development Host** patter
 **Example test (decorationManager):**
 ```typescript
 test('cursor at line 5 in a 10-line file dims lines 0-4 and 6-9', () => {
-  const ranges = computeDimmedRanges(cursorLines: [5], totalLines: 10);
+  const ranges = computeDimmedRanges([5], 10);
   assert.deepStrictEqual(ranges, [
     new vscode.Range(0, 0, 4, Number.MAX_SAFE_INTEGER),
     new vscode.Range(6, 0, 9, Number.MAX_SAFE_INTEGER)
@@ -356,7 +415,7 @@ For final pre-release validation, install the `.vsix` in a **separate VS Code pr
 ```powershell
 # Create and use a temporary profile for testing
 code --profile "FocusMode-Test" --install-extension ./vscode-focus-mode-1.0.0.vsix
-code --profile "FocusMode-Test" .
+code --profile "FocusMode-Test" --user-data-dir ./.vscode-test/profile-user-data --extensions-dir ./.vscode-test/profile-extensions .
 ```
 
 VS Code profiles are fully isolated:
@@ -388,6 +447,8 @@ async function main() {
       extensionTestsPath,
       // Launches a fresh, isolated VS Code instance
       launchArgs: [
+        `--user-data-dir=${path.resolve(__dirname, '../../../.vscode-test/test-user-data')}`,
+        `--extensions-dir=${path.resolve(__dirname, '../../../.vscode-test/test-extensions')}`,
         '--disable-extensions',  // Don't load other extensions
         '--disable-gpu',         // Faster in CI
       ],
@@ -434,7 +495,11 @@ export function run(): Promise<void> {
       "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--user-data-dir=${workspaceFolder}/.vscode-test/user-data",
+        "--extensions-dir=${workspaceFolder}/.vscode-test/extensions"
+      ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: watch"
     },
@@ -444,7 +509,10 @@ export function run(): Promise<void> {
       "request": "launch",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/out/test/suite/index"
+        "--extensionTestsPath=${workspaceFolder}/out/test/suite/index",
+        "--user-data-dir=${workspaceFolder}/.vscode-test/test-user-data",
+        "--extensions-dir=${workspaceFolder}/.vscode-test/test-extensions",
+        "--disable-extensions"
       ],
       "outFiles": ["${workspaceFolder}/out/**/*.js"],
       "preLaunchTask": "npm: compile"
@@ -567,4 +635,10 @@ npm test
 
 # Package for distribution
 npx vsce package
+```
+
+Add to `.gitignore`:
+
+```gitignore
+.vscode-test/
 ```
