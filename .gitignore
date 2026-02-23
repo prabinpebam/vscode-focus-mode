@@ -1,0 +1,28 @@
+# Build output
+out/
+dist/
+
+# Dependencies
+node_modules/
+
+# TypeScript
+*.tsbuildinfo
+
+# Package files
+*.vsix
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor directories and files
+.history/
+
+# Environment
+.env
+.env.local
+
+# Debug
+*.log
+npm-debug.log*
