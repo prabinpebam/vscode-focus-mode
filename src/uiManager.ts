@@ -8,6 +8,7 @@ import { FocusModeConfig, toLineNumberStyle } from './config';
 interface ChangedByFocusMode {
   sideBar: boolean;
   panel: boolean;
+  auxiliaryBar: boolean;
   statusBar: boolean;
   activityBar: boolean;
   fullScreen: boolean;
@@ -17,9 +18,16 @@ interface ChangedByFocusMode {
   editorActions: boolean;
   breadcrumbs: boolean;
   menuBar: boolean;
+  commandCenter: boolean;
   layoutControl: boolean;
   lineNumbers: boolean;
   zoom: boolean;
+}
+
+interface VisibilitySnapshot {
+  sideBarVisible: boolean;
+  panelVisible: boolean;
+  auxiliaryBarVisible: boolean;
 }
 
 /**
@@ -32,6 +40,7 @@ interface SettingsSnapshot {
   editorActionsLocation: string | undefined;
   breadcrumbsEnabled: boolean | undefined;
   menuBarVisibility: string | undefined;
+  commandCenter: boolean | undefined;
   layoutControlEnabled: boolean | undefined;
   lineNumbers: string | undefined;
   zoomLevel: number | undefined;
@@ -55,10 +64,16 @@ export class UIManager {
     editorActionsLocation: undefined,
     breadcrumbsEnabled: undefined,
     menuBarVisibility: undefined,
+    commandCenter: undefined,
     layoutControlEnabled: undefined,
     lineNumbers: undefined,
     zoomLevel: undefined,
     zoomPerWindow: undefined,
+  };
+  private visibilitySnapshot: VisibilitySnapshot = {
+    sideBarVisible: false,
+    panelVisible: false,
+    auxiliaryBarVisible: false,
   };
   /** Tracks how many hide steps succeeded so rollback can undo them. */
   private hideStepsCompleted = 0;
@@ -78,6 +93,11 @@ export class UIManager {
   async hideChrome(config: FocusModeConfig): Promise<void> {
     this.changed = this.freshLedger();
     this.hideStepsCompleted = 0;
+    this.visibilitySnapshot = {
+      sideBarVisible: false,
+      panelVisible: false,
+      auxiliaryBarVisible: false,
+    };
 
     try {
       // ── Deterministic tier: snapshot then write settings ──────────
@@ -137,6 +157,17 @@ export class UIManager {
       }
       this.hideStepsCompleted++;
 
+      // Command center (top search/command bar in title bar)
+      {
+        const winCfg = vscode.workspace.getConfiguration('window');
+        this.settingsSnapshot.commandCenter = winCfg.get<boolean>('commandCenter');
+        if (this.settingsSnapshot.commandCenter !== false) {
+          await winCfg.update('commandCenter', false, vscode.ConfigurationTarget.Global);
+          this.changed.commandCenter = true;
+        }
+      }
+      this.hideStepsCompleted++;
+
       // Layout controls (split/grid/layout icons in the title bar area)
       {
         const wbCfg = vscode.workspace.getConfiguration('workbench.layoutControl');
@@ -192,13 +223,21 @@ export class UIManager {
       // ── Best-effort tier: commands ────────────────────────────────
 
       // Sidebar (close is idempotent)
+      this.visibilitySnapshot.sideBarVisible = await this.getContextBoolean('sideBarVisible');
       await vscode.commands.executeCommand('workbench.action.closeSidebar');
-      this.changed.sideBar = true;
+      this.changed.sideBar = this.visibilitySnapshot.sideBarVisible;
       this.hideStepsCompleted++;
 
       // Panel (close is idempotent)
+      this.visibilitySnapshot.panelVisible = await this.getContextBoolean('panelVisible');
       await vscode.commands.executeCommand('workbench.action.closePanel');
-      this.changed.panel = true;
+      this.changed.panel = this.visibilitySnapshot.panelVisible;
+      this.hideStepsCompleted++;
+
+      // Auxiliary bar (typically where chat lives)
+      this.visibilitySnapshot.auxiliaryBarVisible = await this.getContextBoolean('auxiliaryBarVisible');
+      await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+      this.changed.auxiliaryBar = this.visibilitySnapshot.auxiliaryBarVisible;
       this.hideStepsCompleted++;
 
       // Activity bar (toggle — no state query available)
@@ -260,6 +299,11 @@ export class UIManager {
     if (this.changed.menuBar && this.settingsSnapshot.menuBarVisibility !== undefined) {
       const winCfg = vscode.workspace.getConfiguration('window');
       await winCfg.update('menuBarVisibility', this.settingsSnapshot.menuBarVisibility, vscode.ConfigurationTarget.Global);
+    }
+
+    if (this.changed.commandCenter && this.settingsSnapshot.commandCenter !== undefined) {
+      const winCfg = vscode.workspace.getConfiguration('window');
+      await winCfg.update('commandCenter', this.settingsSnapshot.commandCenter, vscode.ConfigurationTarget.Global);
     }
 
     if (this.changed.layoutControl && this.settingsSnapshot.layoutControlEnabled !== undefined) {
@@ -325,6 +369,10 @@ export class UIManager {
       await vscode.commands.executeCommand('workbench.action.togglePanel');
     }
 
+    if (this.changed.auxiliaryBar) {
+      await vscode.commands.executeCommand('workbench.action.toggleAuxiliaryBar');
+    }
+
     if (this.changed.sideBar) {
       await vscode.commands.executeCommand('workbench.action.toggleSidebarVisibility');
     }
@@ -388,6 +436,7 @@ export class UIManager {
     return {
       sideBar: false,
       panel: false,
+      auxiliaryBar: false,
       statusBar: false,
       activityBar: false,
       fullScreen: false,
@@ -397,9 +446,19 @@ export class UIManager {
       editorActions: false,
       breadcrumbs: false,
       menuBar: false,
+      commandCenter: false,
       layoutControl: false,
       lineNumbers: false,
       zoom: false,
     };
+  }
+
+  private async getContextBoolean(key: string): Promise<boolean> {
+    try {
+      const value = await vscode.commands.executeCommand<unknown>('getContextKeyValue', key);
+      return value === true;
+    } catch {
+      return false;
+    }
   }
 }

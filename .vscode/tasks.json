@@ -4,7 +4,7 @@
     {
       "label": "build",
       "type": "shell",
-      "command": "npx tsc --noEmit && node esbuild.mjs",
+      "command": "npm run lint && npm run compile",
       "group": "build",
       "problemMatcher": ["$tsc"]
     }
